@@ -1,22 +1,25 @@
+# Deploy to Streamlit Community Cloud
 
-# Quick deployment
-
-## GitHub
+## 1. Push to GitHub
 
 ```bash
-cd philly_eats_rich
+cd philly_eats_complete_data_app
 git init
 git add .
-git commit -m "Launch PhillyEats"
+git commit -m "Deploy PhillyEats"
 git branch -M main
 git remote add origin https://github.com/YOUR_USERNAME/philly-eats.git
 git push -u origin main
 ```
 
-## Streamlit Community Cloud
+## 2. Deploy
+
+In Streamlit Community Cloud select:
 
 - Repository: `YOUR_USERNAME/philly-eats`
 - Branch: `main`
 - Main file path: `app.py`
 
-Deploy and share the generated Streamlit URL.
+Then click **Deploy**.
+
+The generated `*.streamlit.app` URL can be shared publicly.

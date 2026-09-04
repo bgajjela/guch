@@ -1,73 +1,56 @@
+# PhillyEats — Complete Data Bundle
 
-# PhillyEats
+A deployable Streamlit restaurant-discovery app for Philadelphia.
 
-A polished restaurant-discovery prototype built with Streamlit and the included Philadelphia restaurant dataset.
+## Included data
 
-## Product experience
+- **511 restaurants**
+- **14,275 menu items**
+- Menu coverage for **337 restaurants** (65.9% of the restaurant dataset)
+- Rating and total review-count information from the restaurant dataset
+- Ready-to-fill review and photo files
 
-- Consumer-style Discover view
-- Hero search
-- Quick cuisine / dietary collections
-- Rating, cuisine, dietary, and price filters
-- Recommended / rating / review-count sorting
+## Main app features
+
+- Discover / Map / Saved navigation
+- Search, cuisine, dietary, price, and rating filters
 - Rich restaurant cards
-- Restaurant pop-out modal with focused map and place details
-- Save / unsave restaurants during the browser session
-- Map-first exploration with marker clustering
-- Click a marker to inspect a restaurant
-- Dedicated restaurant detail treatment
+- Interactive Philadelphia restaurant map
+- Restaurant pop-out with restaurant details + map side-by-side
+- Menu tab with item search, sections, descriptions, and prices
+- Reviews tab
+- Photos tab
 - Google Maps directions
 - Restaurant website links
-- Responsive layout
-- No SerpApi key required for browsing
-
-## Run locally
-
-```bash
-python3 -m pip install --upgrade -r requirements.txt
-streamlit run app.py
-```
-
-Then open:
-
-```text
-http://localhost:8501
-```
-
-## Deploy to Streamlit Community Cloud
-
-1. Create a GitHub repository.
-2. Push this entire folder, including `.streamlit/config.toml`.
-3. In Streamlit Community Cloud, create a new app.
-4. Choose the repository and `app.py`.
-5. Deploy and share the resulting `*.streamlit.app` URL.
-
-No API secrets are required for this version.
+- Session-based favorites
+- Streamlit Community Cloud ready
 
 ## Files
 
 ```text
-philly_eats_rich/
+philly_eats_complete_data_app/
 ├── app.py
 ├── philadelphia_restaurants.csv
+├── menu_items.csv
+├── reviews.csv
+├── restaurant_photos.csv
 ├── requirements.txt
 ├── README.md
-├── .gitignore
+├── DATA_FORMATS.md
+├── DEPLOY.md
 └── .streamlit/
     └── config.toml
 ```
 
-## Notes
+## Run locally
 
-- Restaurant “Recommended” ranking is a local heuristic using rating and review volume.
-- Saved restaurants are intentionally session-only in this prototype.
-- The base map uses OpenStreetMap through Folium/Leaflet.
-- Google Maps buttons open the restaurant as a search/directions destination; no Google Maps API key is embedded.
+```bash
+python3 -m pip install -r requirements.txt
+streamlit run app.py
+```
 
+## Deploy
 
-## Restaurant pop-out
+Push the folder to GitHub and deploy `app.py` with Streamlit Community Cloud.
 
-The View button opens a large restaurant sheet. The restaurant information and
-interactive Leaflet map are rendered in one self-contained component, so the
-map remains on the right side on desktop instead of being pushed below by
-Streamlit's responsive column layout.
+No SerpApi, Google Maps, or Mapbox API key is required for browsing this bundle.

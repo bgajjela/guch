@@ -25,6 +25,9 @@ st.set_page_config(
 
 APP_DIR = Path(__file__).parent
 CSV_PATH = APP_DIR / "philadelphia_restaurants.csv"
+MENU_PATH = APP_DIR / "menu_items.csv"
+REVIEWS_PATH = APP_DIR / "reviews.csv"
+PHOTOS_PATH = APP_DIR / "restaurant_photos.csv"
 
 CUISINE_ICONS = {
     "Italian": "🍝",
@@ -361,6 +364,112 @@ def load_data():
 df = load_data()
 
 
+@st.cache_data(show_spinner=False)
+def load_menu_data():
+    if not MENU_PATH.exists():
+        return pd.DataFrame()
+
+    menu = pd.read_csv(MENU_PATH)
+    expected = [
+        "place_id", "data_id", "restaurant_name", "address", "section",
+        "item_name", "description", "price", "currency", "source_url",
+        "source_type", "raw_text",
+    ]
+    for col in expected:
+        if col not in menu.columns:
+            menu[col] = ""
+        menu[col] = menu[col].fillna("").astype(str)
+
+    menu["item_name"] = menu["item_name"].str.strip()
+    menu = menu[menu["item_name"] != ""].copy()
+    return menu
+
+
+@st.cache_data(show_spinner=False)
+def load_reviews_data():
+    if not REVIEWS_PATH.exists():
+        return pd.DataFrame()
+
+    reviews = pd.read_csv(REVIEWS_PATH)
+    if reviews.empty:
+        return reviews
+
+    aliases = {
+        "text": "review_text",
+        "snippet": "review_text",
+        "author_name": "reviewer_name",
+        "user_name": "reviewer_name",
+        "date": "review_date",
+    }
+    for old, new in aliases.items():
+        if old in reviews.columns and new not in reviews.columns:
+            reviews[new] = reviews[old]
+
+    for col in [
+        "place_id", "data_id", "reviewer_name", "review_text",
+        "review_date", "review_url"
+    ]:
+        if col not in reviews.columns:
+            reviews[col] = ""
+        reviews[col] = reviews[col].fillna("").astype(str)
+
+    for col in ["rating", "likes"]:
+        if col not in reviews.columns:
+            reviews[col] = pd.NA
+        reviews[col] = pd.to_numeric(reviews[col], errors="coerce")
+
+    return reviews
+
+
+@st.cache_data(show_spinner=False)
+def load_photos_data():
+    if not PHOTOS_PATH.exists():
+        return pd.DataFrame()
+
+    photos = pd.read_csv(PHOTOS_PATH)
+    if photos.empty:
+        return photos
+
+    aliases = {
+        "image_url": "photo_url",
+        "url": "photo_url",
+        "image": "photo_url",
+        "path": "photo_path",
+        "image_path": "photo_path",
+    }
+    for old, new in aliases.items():
+        if old in photos.columns and new not in photos.columns:
+            photos[new] = photos[old]
+
+    for col in ["place_id", "data_id", "photo_url", "photo_path", "caption"]:
+        if col not in photos.columns:
+            photos[col] = ""
+        photos[col] = photos[col].fillna("").astype(str)
+
+    return photos
+
+
+menu_df = load_menu_data()
+reviews_df = load_reviews_data()
+photos_df = load_photos_data()
+
+MENU_COUNTS = (
+    menu_df.groupby("place_id").size().to_dict()
+    if not menu_df.empty and "place_id" in menu_df.columns
+    else {}
+)
+REVIEW_TEXT_COUNTS = (
+    reviews_df.groupby("place_id").size().to_dict()
+    if not reviews_df.empty and "place_id" in reviews_df.columns
+    else {}
+)
+PHOTO_COUNTS = (
+    photos_df.groupby("place_id").size().to_dict()
+    if not photos_df.empty and "place_id" in photos_df.columns
+    else {}
+)
+
+
 # ============================================================
 # Helpers
 # ============================================================
@@ -475,6 +584,276 @@ def restaurant_tags(row, max_tags=3):
     return tags[:max_tags]
 
 
+
+def rows_for_restaurant(dataframe, row):
+    if dataframe is None or dataframe.empty:
+        return pd.DataFrame()
+
+    place_id = str(row.get("place_id") or "").strip()
+    data_id = str(row.get("data_id") or "").strip()
+
+    mask = pd.Series(False, index=dataframe.index)
+
+    if place_id and "place_id" in dataframe.columns:
+        mask = mask | (dataframe["place_id"].astype(str) == place_id)
+
+    if data_id and "data_id" in dataframe.columns:
+        mask = mask | (dataframe["data_id"].astype(str) == data_id)
+
+    return dataframe[mask].copy()
+
+
+def menu_count(row):
+    return int(MENU_COUNTS.get(str(row.get("place_id") or ""), 0))
+
+
+def review_text_count(row):
+    return int(REVIEW_TEXT_COUNTS.get(str(row.get("place_id") or ""), 0))
+
+
+def photo_count(row):
+    return int(PHOTO_COUNTS.get(str(row.get("place_id") or ""), 0))
+
+
+def normalize_menu_price(value, currency="USD"):
+    value = str(value or "").strip()
+    if not value:
+        return ""
+    if value.startswith("$"):
+        return value
+    if currency.upper() == "USD":
+        return f"${value}"
+    return f"{value} {currency}".strip()
+
+
+def render_menu_tab(row):
+    restaurant_menu = rows_for_restaurant(menu_df, row)
+
+    if restaurant_menu.empty:
+        st.info("No menu-item data is available for this restaurant yet.")
+        return
+
+    st.caption(f"{len(restaurant_menu):,} menu items loaded")
+
+    query = st.text_input(
+        "Search this menu",
+        placeholder="pasta, chicken, vegan, dessert…",
+        key=f"menu_search_{int(row['_row_id'])}",
+    ).strip().lower()
+
+    view = restaurant_menu.copy()
+
+    if query:
+        blob = (
+            view["item_name"] + " "
+            + view["description"] + " "
+            + view["section"]
+        ).str.lower()
+        view = view[blob.str.contains(query, regex=False)]
+
+    if view.empty:
+        st.info("No menu items match that search.")
+        return
+
+    # Preserve menu order while giving unnamed sections a clean label.
+    view["section_clean"] = (
+        view["section"]
+        .replace("", "Menu")
+        .fillna("Menu")
+        .astype(str)
+        .str.strip()
+    )
+    view.loc[view["section_clean"] == "", "section_clean"] = "Menu"
+
+    max_items = 100
+    shown = 0
+
+    for section, group in view.groupby("section_clean", sort=False):
+        if shown >= max_items:
+            break
+
+        # Avoid oversized section headings from heuristic extraction.
+        section_title = section
+        if len(section_title) > 70:
+            section_title = "Menu"
+
+        st.markdown(f"#### {section_title}")
+
+        for _, item in group.iterrows():
+            if shown >= max_items:
+                break
+
+            item_name = str(item.get("item_name") or "").strip()
+            description = str(item.get("description") or "").strip()
+            price = normalize_menu_price(
+                item.get("price"),
+                item.get("currency") or "USD",
+            )
+
+            left, right = st.columns([4, 1])
+            with left:
+                st.markdown(f"**{item_name}**")
+                if description:
+                    st.caption(description)
+            with right:
+                if price:
+                    st.markdown(
+                        f"<div style='text-align:right;font-weight:750;'>{escape(price)}</div>",
+                        unsafe_allow_html=True,
+                    )
+            st.markdown(
+                "<div style='height:1px;background:rgba(23,23,23,.07);margin:.15rem 0 .55rem 0;'></div>",
+                unsafe_allow_html=True,
+            )
+            shown += 1
+
+    if len(view) > max_items:
+        st.caption(
+            f"Showing the first {max_items} matching items. "
+            f"Use menu search to narrow {len(view):,} results."
+        )
+
+    source_urls = [
+        u for u in restaurant_menu["source_url"].dropna().astype(str).unique()
+        if u.strip()
+    ]
+    if source_urls:
+        st.link_button(
+            "Open menu source",
+            source_urls[0],
+            key=f"menu_source_{int(row['_row_id'])}",
+        )
+
+
+def render_reviews_tab(row):
+    restaurant_reviews = rows_for_restaurant(reviews_df, row)
+
+    if restaurant_reviews.empty:
+        total_reviews = row.get("review_count")
+        rating = row.get("rating")
+        summary = []
+        if not pd.isna(rating):
+            summary.append(f"{float(rating):.1f} ★ overall rating")
+        if not pd.isna(total_reviews):
+            summary.append(f"{int(total_reviews):,} total reviews")
+
+        detail = " · ".join(summary)
+        if detail:
+            st.markdown(f"**{detail}**")
+
+        st.info(
+            "The restaurant summary rating is available, but individual "
+            "review text is not bundled yet. Replace `reviews.csv` with "
+            "your review export and it will appear here automatically."
+        )
+        return
+
+    sort_cols = []
+    ascending = []
+    if "review_date" in restaurant_reviews.columns:
+        sort_cols.append("review_date")
+        ascending.append(False)
+    if "rating" in restaurant_reviews.columns:
+        sort_cols.append("rating")
+        ascending.append(False)
+
+    if sort_cols:
+        restaurant_reviews = restaurant_reviews.sort_values(
+            sort_cols,
+            ascending=ascending,
+            na_position="last",
+        )
+
+    st.caption(f"{len(restaurant_reviews):,} review records loaded")
+
+    for i, (_, review) in enumerate(restaurant_reviews.head(30).iterrows()):
+        reviewer = str(review.get("reviewer_name") or "Google reviewer").strip()
+        text = str(review.get("review_text") or "").strip()
+        date = str(review.get("review_date") or "").strip()
+        rating = review.get("rating")
+        likes = review.get("likes")
+
+        stars = ""
+        if not pd.isna(rating):
+            stars = "★" * max(1, min(5, int(round(float(rating)))))
+
+        with st.container(border=True):
+            top_left, top_right = st.columns([3, 1])
+            with top_left:
+                st.markdown(f"**{reviewer}**")
+                if stars:
+                    st.markdown(stars)
+            with top_right:
+                if date:
+                    st.caption(date)
+
+            if text:
+                st.write(text)
+
+            footer = []
+            if not pd.isna(likes):
+                footer.append(f"{int(likes)} helpful")
+            review_url = str(review.get("review_url") or "").strip()
+            if footer:
+                st.caption(" · ".join(footer))
+            if review_url:
+                st.link_button(
+                    "Open review",
+                    review_url,
+                    key=f"review_link_{int(row['_row_id'])}_{i}",
+                )
+
+
+def resolve_photo_source(photo_row):
+    url = str(photo_row.get("photo_url") or "").strip()
+    if url:
+        return url
+
+    local_path = str(photo_row.get("photo_path") or "").strip()
+    if not local_path:
+        return None
+
+    candidate = Path(local_path)
+    if not candidate.is_absolute():
+        candidate = APP_DIR / candidate
+
+    return str(candidate) if candidate.exists() else None
+
+
+def render_photos_tab(row):
+    restaurant_photos = rows_for_restaurant(photos_df, row)
+
+    if restaurant_photos.empty:
+        st.info(
+            "No restaurant photo file is bundled yet. Add photo URLs or "
+            "local image paths to `restaurant_photos.csv` and they will "
+            "appear here automatically."
+        )
+        return
+
+    valid = []
+    for _, photo in restaurant_photos.iterrows():
+        source = resolve_photo_source(photo)
+        if source:
+            valid.append((source, str(photo.get("caption") or "").strip()))
+
+    if not valid:
+        st.info("Photo records exist, but none of their URLs/paths could be loaded.")
+        return
+
+    st.caption(f"{len(valid):,} photos loaded")
+    cols = st.columns(3)
+
+    for i, (source, caption) in enumerate(valid[:30]):
+        with cols[i % 3]:
+            st.image(
+                source,
+                caption=caption if caption else None,
+                use_container_width=True,
+            )
+
+
+
 def card_html(row):
     name = escape(str(row.get("name") or "Restaurant"))
     cuisine = escape(primary_cuisine(row))
@@ -485,7 +864,22 @@ def card_html(row):
     hood = escape(clean_neighborhood(row.get("search_neighborhoods")))
     address = escape(str(row.get("address") or ""))
     tags = restaurant_tags(row, 3)
-    badges = "".join(f'<span class="pe-badge">{escape(t)}</span>' for t in tags)
+
+    menu_items_loaded = menu_count(row)
+    photos_loaded = photo_count(row)
+    review_records_loaded = review_text_count(row)
+
+    if menu_items_loaded:
+        tags.append(f"Menu {menu_items_loaded}")
+    if photos_loaded:
+        tags.append(f"{photos_loaded} photos")
+    if review_records_loaded:
+        tags.append(f"{review_records_loaded} reviews")
+
+    badges = "".join(
+        f'<span class="pe-badge">{escape(t)}</span>'
+        for t in tags[:5]
+    )
     secondary = " · ".join(x for x in [cuisine, price, hood] if x)
 
     return f"""
@@ -794,6 +1188,31 @@ def restaurant_dialog(row_id):
         height=435,
         scrolling=False,
     )
+
+    menu_label = f"Menu ({menu_count(row)})" if menu_count(row) else "Menu"
+    reviews_label = (
+        f"Reviews ({review_text_count(row)})"
+        if review_text_count(row)
+        else "Reviews"
+    )
+    photos_label = (
+        f"Photos ({photo_count(row)})"
+        if photo_count(row)
+        else "Photos"
+    )
+
+    menu_tab, reviews_tab, photos_tab = st.tabs(
+        [menu_label, reviews_label, photos_label]
+    )
+
+    with menu_tab:
+        render_menu_tab(row)
+
+    with reviews_tab:
+        render_reviews_tab(row)
+
+    with photos_tab:
+        render_photos_tab(row)
 
     saved = st.session_state.setdefault("saved_ids", set())
     is_saved = rid in saved
